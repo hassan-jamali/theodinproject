@@ -21,6 +21,8 @@ COPY Gemfile Gemfile.lock .ruby-version package.json yarn.lock ./
 RUN bundle install
 RUN yarn install
 
+RUN bundle exec rails assets:precompile RAILS_ENV=test
+
 # copy app code
 COPY . .
 
