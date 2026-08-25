@@ -60,7 +60,7 @@ pipeline {
                   -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@test-db-${env.BUILD_NUMBER}:5432/odin_test \\
                   -v ${WORKSPACE}/test-results:/app/test-results \\
                   odin-app:${env.BUILD_NUMBER} \\
-                  sh -c "bundle exec rails db:create db:schema:load && bin/rspec --tag ~type:system --format documentation --format RspecJunitFormatter --out test-results/rspec.xml"
+                  sh -c "bundle exec rails db:create db:schema:load db:seed && bin/rspec --tag ~type:system --format documentation --format RspecJunitFormatter --out test-results/rspec.xml"
                 """
             }
             post {
