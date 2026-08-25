@@ -6,7 +6,8 @@ RUN apt-get update -qq && apt-get install -y \
     build-essential \
     libpq-dev \
     nodejs \
-    yarn
+    npm
+RUN npm install --global yarn
 
 # set workdir
 WORKDIR /app
