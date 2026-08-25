@@ -1,5 +1,5 @@
 # ruby base image
-FROM ruby:3.2.2
+FROM ruby:3.4.6
 
 # install system dependencies
 RUN apt-get update -qq && apt-get install -y \
