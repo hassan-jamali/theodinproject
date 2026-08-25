@@ -21,10 +21,10 @@ COPY Gemfile Gemfile.lock .ruby-version package.json yarn.lock ./
 RUN bundle install
 RUN yarn install
 
-RUN bundle exec rails assets:precompile RAILS_ENV=test
-
-# copy app code
+# copy app code first so Rails can access views/controllers during asset compilation
 COPY . .
+
+RUN RAILS_ENV=test bundle exec rails assets:precompile
 
 # expose rails port
 EXPOSE 3000
