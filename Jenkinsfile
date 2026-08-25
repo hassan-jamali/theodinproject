@@ -57,8 +57,8 @@ pipeline {
                 docker run --rm \
                   --network test-net-${env.BUILD_NUMBER} \
                   -e RAILS_ENV=test \
-                  -e BROWSER_PATH="/usr/bin/chromium" \
-                  -e CHROME_OPTS="--no-sandbox --disable-dev-shm-usage" \
+                  -e BROWSER_PATH="/usr/bin/chromium-browser" \
+                  -e CHROME_PATH="/usr/bin/chromium-browser" \
                   -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@test-db-${env.BUILD_NUMBER}:5432/odin_test \
                   -v ${WORKSPACE}/test-results:/app/test-results \
                   odin-app:${env.BUILD_NUMBER} \
