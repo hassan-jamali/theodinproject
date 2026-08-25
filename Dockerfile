@@ -7,7 +7,7 @@ RUN apt-get update -qq && apt-get install -y \
     libpq-dev \
     nodejs \
     npm
-RUN npm install --global yarn
+RUN corepack enable
 
 # set workdir
 WORKDIR /app
