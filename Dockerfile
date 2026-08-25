@@ -6,9 +6,9 @@ RUN apt-get update -qq && apt-get install -y \
     build-essential \
     libpq-dev \
     nodejs \
-    npm
+    npm \
     chromium
-    
+
 RUN corepack enable
 
 # set workdir
