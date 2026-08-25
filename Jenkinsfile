@@ -12,7 +12,8 @@ pipeline {
             steps {
                 // create the .env file by copying our secret file credentials
                 withCredentials([file(credentialsId: 'odin-env', variable: 'source_env')]) {
-                    sh 'cp $source_env .env'
+                    // delete the old file before copying a new one
+                    sh 'rm -f .env && cp $source_env .env'
                 }
                 // create our docker artifact tagged with the build number
                 sh "docker build -t odin-app:${env.BUILD_NUMBER} ."
