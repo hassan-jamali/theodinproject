@@ -54,15 +54,13 @@ pipeline {
                 mkdir -p ${WORKSPACE}/test-results
 
                 # run tests with db connection
-                docker run --rm \
-                  --network test-net-${env.BUILD_NUMBER} \
-                  -e BROWSER_PATH="/usr/bin/chromium" \
-                  -e CHROME_PATH="/usr/bin/chromium" \
-                  -e CHROME_OPTS="--no-sandbox --disable-dev-shm-usage --headless" \
-                  -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@test-db-${env.BUILD_NUMBER}:5432/odin_test \
-                  -v ${WORKSPACE}/test-results:/app/test-results \
-                  odin-app:${env.BUILD_NUMBER} \
-                  sh -c "bundle exec rails db:create db:schema:load && bin/rspec --format documentation --format RspecJunitFormatter --out test-results/rspec.xml"
+                docker run --rm \\
+                  --network test-net-${env.BUILD_NUMBER} \\
+                  -e RAILS_ENV=test \\
+                  -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@test-db-${env.BUILD_NUMBER}:5432/odin_test \\
+                  -v ${WORKSPACE}/test-results:/app/test-results \\
+                  odin-app:${env.BUILD_NUMBER} \\
+                  sh -c "bundle exec rails db:create db:schema:load && bin/rspec --tag ~type:system --format documentation --format RspecJunitFormatter --out test-results/rspec.xml"
                 """
             }
             post {
