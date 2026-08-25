@@ -15,7 +15,7 @@ pipeline {
                     sh 'cp $source_env .env'
                 }
                 // create our docker artifact tagged with the build number
-                sh 'docker build -t odin-app:${env.BUILD_NUMBER} .'
+                sh "docker build -t odin-app:${env.BUILD_NUMBER} ."
             }
             post {
                 success {
@@ -86,11 +86,11 @@ pipeline {
         stage('Code Quality') {
             steps {
                 // create a folder on Jenkins to output report
-                sh 'mkdir -p ${WORKSPACE}/quality_reports'
+                sh "mkdir -p ${WORKSPACE}/quality_reports"
                 // run rubocop, output a visual html report, and print standard progress to terminal
                 sh """
                 docker run --rm \\
-                  -v ${WORKSPACE}/quality-reports:/app/quality_reports \\
+                  -v ${WORKSPACE}/quality_reports:/app/quality_reports \\
                   odin-app:${env.BUILD_NUMBER} \\
                   sh -c "bundle exec rubocop --format html -o quality_reports/rubocop.html --format progress"
                 """
@@ -114,11 +114,11 @@ pipeline {
         stage('Security') {
             steps {
                 // create folder for the security report
-                sh 'mkdir -p ${WORKSPACE}/security_reports'
+                sh "mkdir -p ${WORKSPACE}/security_reports"
                 // run brakeman and output an html report
                 sh """
                 docker run --rm \\
-                  -v ${WORKSPACE}/security-reports:/app/security_reports \\
+                  -v ${WORKSPACE}/security_reports:/app/security_reports \\
                   odin-app:${env.BUILD_NUMBER} \\
                   sh -c "bundle exec brakeman -o security_reports/brakeman.html -o -"
                 """
