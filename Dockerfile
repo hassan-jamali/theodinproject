@@ -12,7 +12,7 @@ RUN apt-get update -qq && apt-get install -y \
 WORKDIR /app
 
 # copy dependency files
-COPY Gemfile Gemfile.lock package.json yarn.lock ./
+COPY Gemfile Gemfile.lock .ruby-version package.json yarn.lock ./
 
 # install gems and node packages
 RUN bundle install
