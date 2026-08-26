@@ -213,7 +213,7 @@ pipeline {
         stage('Release') {
             steps {
                 // push tagged image to docker hub
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
                     sh """#!/bin/bash
                     set -e
                     # authenticate and push
