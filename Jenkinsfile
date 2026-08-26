@@ -6,7 +6,7 @@ pipeline {
     environment {
         PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"
         DOCKER_HUB_USER = "hassanjamali"
-        EC2_PUBLIC_IP = "32.236.195.94"
+        EC2_PUBLIC_IP = "3.27.32.216"
     }
 
     stages {
