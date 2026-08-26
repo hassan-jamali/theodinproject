@@ -279,7 +279,7 @@ EOF
                 set -e
                 # wait for the production rails server to fully boot
                 echo "waiting for rails to start..."
-                sleep 15
+                sleep 60
                 echo "monitoring production service on aws ec2..."
                 # perform live endpoint verification
                 HTTP_STATUS=\$(curl -s -o /dev/null -w "%{http_code}" http://${env.EC2_PUBLIC_IP}:3000/ || true)
