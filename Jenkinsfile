@@ -86,19 +86,20 @@ pipeline {
         }
         stage('Code Quality') {
             steps {
-                // create a folder on Jenkins to output report
+                // create a folder on Jenkins for the code quality reports
                 sh "mkdir -p ${WORKSPACE}/quality_reports"
                 // run rubocop, output a visual html report, and print standard progress to terminal
                 sh """
                 docker run --rm \\
                   -v ${WORKSPACE}/quality_reports:/app/quality_reports \\
                   odin-app:${env.BUILD_NUMBER} \\
-                  sh -c "bundle exec rubocop --format html -o quality_reports/rubocop.html --format progress"
+                  sh -c "bundle exec rubocop --format markdown -o quality_reports/rubocop.md --format progress"
                 """
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'quality_reports/rubocop.html', allowEmptyArchive: true
+                    // save the code quality report to the jenkins dashboard
+                    archiveArtifacts artifacts: 'quality_reports/rubocop.md', allowEmptyArchive: true
                 }
                 success {
                     script {
@@ -121,13 +122,13 @@ pipeline {
                 docker run --rm \\
                   -v ${WORKSPACE}/security_reports:/app/security_reports \\
                   odin-app:${env.BUILD_NUMBER} \\
-                  sh -c "bundle exec brakeman -o security_reports/brakeman.html -o -"
+                  sh -c "bundle exec brakeman -o security_reports/brakeman.md -o -"
                 """
             }
             post {
                 always {
                     // save the security report to the jenkins dashboard
-                    archiveArtifacts artifacts: 'security_reports/brakeman.html', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'security_reports/brakeman.md', allowEmptyArchive: true
                 }
                 success {
                     script {
