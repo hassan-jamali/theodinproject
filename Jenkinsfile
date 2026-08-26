@@ -172,7 +172,7 @@ pipeline {
                   odin-app:${env.BUILD_NUMBER} \\
                   sh -c "bundle exec rails db:prepare && bin/rails server -b 0.0.0.0"
                 # perform health check on staging
-                sleep 8
+                sleep 30
                 if curl -f http://localhost:3001/ > /dev/null 2>&1; then
                     echo "staging health check passed."
                 else
