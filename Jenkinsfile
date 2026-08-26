@@ -256,7 +256,7 @@ pipeline {
                       -e DATABASE_URL=postgresql://postgres:productionpassword@odin-prod-db:5432/odin_production \\
                       ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER} \\
                       sh -c "bundle exec rails db:prepare && bin/rails server -b 0.0.0.0"
-                    EOF
+EOF
                     """
                 }
             }
