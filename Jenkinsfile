@@ -144,7 +144,42 @@ pipeline {
         }
         stage('Deploy') {
             steps {
-                echo 'nothing yet'
+                sh """#!/bin/bash
+                set -e
+                
+                # clean up old containers and network
+                docker stop odin-app-live || true
+                docker rm odin-app-live || true
+                docker stop odin-db-live || true
+                docker rm odin-db-live || true
+                docker network rm odin-prod-net || true
+
+                # create isolated network
+                docker network create odin-prod-net
+
+                # start database container
+                export \$(grep -v '^#' .env | xargs)
+                docker run -d \\
+                  --name odin-db-live \\
+                  --network odin-prod-net \\
+                  -e POSTGRES_USER=\$POSTGRES_USERNAME \\
+                  -e POSTGRES_PASSWORD=\$POSTGRES_PASSWORD \\
+                  postgres:14
+
+                # wait for database to boot
+                sleep 5
+
+                # start rails application container
+                docker run -d \\
+                  --name odin-app-live \\
+                  --network odin-prod-net \\
+                  -p 3000:3000 \\
+                  -e RAILS_ENV=production \\
+                  -e SECRET_KEY_BASE=\${SECRET_KEY_BASE:-dummy_secret_key_for_pipeline_run_32_chars_long} \\
+                  -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@odin-db-live:5432/odin_production \\
+                  odin-app:${env.BUILD_NUMBER} \\
+                  sh -c "bundle exec rails db:prepare && bin/rails server -b 0.0.0.0"
+                """
             }
             post {
                 success {
