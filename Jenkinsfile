@@ -228,6 +228,7 @@ pipeline {
                 sshagent(['ec2-ssh-key']) {
                     sh """#!/bin/bash
                     set -e
+                    scp -o StrictHostKeyChecking=no .env ubuntu@${env.EC2_PUBLIC_IP}:/home/ubuntu/.env
                     ssh -o StrictHostKeyChecking=no ubuntu@${env.EC2_PUBLIC_IP} << 'EOF'
                     set -e
                     # pull newly released image
@@ -251,6 +252,7 @@ pipeline {
                       --name odin-prod-app \\
                       --network odin-prod-net \\
                       -p 3000:3000 \\
+                      --env-file /home/ubuntu/.env \\
                       -e RAILS_ENV=production \\
                       -e SECRET_KEY_BASE=production_secret_key_base_32_characters_long_val \\
                       -e DATABASE_URL=postgresql://postgres:productionpassword@odin-prod-db:5432/odin_production \\
@@ -310,10 +312,6 @@ EOF
     post {
         always {
             script {
-                def ordered_stages = [
-                    'Build', 'Test', 'Code Quality', 'Security',
-                    'Deploy', 'Release', 'Monitoring'
-                ]
                 println "Final Results: ${stage_results}"
             }
         }
