@@ -5,6 +5,8 @@ pipeline {
 
     environment {
         PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"
+        DOCKER_HUB_USER = "hassanjamali"
+        EC2_PUBLIC_IP = "32.236.195.94"
     }
 
     stages {
@@ -35,24 +37,18 @@ pipeline {
             steps {
                 sh """#!/bin/bash
                 set -e 
-                
                 # load env variables
                 export \$(grep -v '^#' .env | xargs)
-                
                 docker network create test-net-${env.BUILD_NUMBER}
-
                 docker run -d \\
                   --name test-db-${env.BUILD_NUMBER} \\
                   --network test-net-${env.BUILD_NUMBER} \\
                   -e POSTGRES_USER=\$POSTGRES_USERNAME \\
                   -e POSTGRES_PASSWORD=\$POSTGRES_PASSWORD \\
                   postgres:14
-
                 # wait for db to start
                 sleep 5
-
                 mkdir -p ${WORKSPACE}/test-results
-
                 # run tests with db connection
                 docker run --rm \\
                   --network test-net-${env.BUILD_NUMBER} \\
@@ -66,9 +62,9 @@ pipeline {
             post {
                 always {
                     // clean up the database and network
-                    sh "docker stop test-db-${env.BUILD_NUMBER} || true"
-                    sh "docker rm test-db-${env.BUILD_NUMBER} || true"
-                    sh "docker network rm test-net-${env.BUILD_NUMBER} || true"
+                    sh "docker stop test-db-${env.BUILD_NUMBER} 2>/dev/null || true"
+                    sh "docker rm test-db-${env.BUILD_NUMBER} 2>/dev/null || true"
+                    sh "docker network rm test-net-${env.BUILD_NUMBER} 2>/dev/null || true"
 
                     junit 'test-results/rspec.xml'
                 }
@@ -146,39 +142,59 @@ pipeline {
             steps {
                 sh """#!/bin/bash
                 set -e
-                
-                # clean up old containers and network
-                docker stop odin-app-live || true
-                docker rm odin-app-live || true
-                docker stop odin-db-live || true
-                docker rm odin-db-live || true
-                docker network rm odin-prod-net || true
-
-                # create isolated network
-                docker network create odin-prod-net
-
-                # start database container
+                echo "deploying to staging environment..."
+                # record currently running staging image tag for rollback
+                PREV_TAG=\$(docker inspect --format='{{.Config.Image}}' odin-staging-app 2>/dev/null || echo "")
+                # create staging network
+                docker network create odin-staging-net 2>/dev/null || true
+                # start staging database
                 export \$(grep -v '^#' .env | xargs)
+                if [ ! "\$(docker ps -q -f name=odin-staging-db)" ]; then
+                    docker run -d \\
+                      --name odin-staging-db \\
+                      --network odin-staging-net \\
+                      -e POSTGRES_USER=\$POSTGRES_USERNAME \\
+                      -e POSTGRES_PASSWORD=\$POSTGRES_PASSWORD \\
+                      postgres:14
+                    sleep 5
+                fi
+                # stop active staging container
+                docker stop odin-staging-app 2>/dev/null || true
+                docker rm odin-staging-app 2>/dev/null || true
+                # start new container version
                 docker run -d \\
-                  --name odin-db-live \\
-                  --network odin-prod-net \\
-                  -e POSTGRES_USER=\$POSTGRES_USERNAME \\
-                  -e POSTGRES_PASSWORD=\$POSTGRES_PASSWORD \\
-                  postgres:14
-
-                # wait for database to boot
-                sleep 5
-
-                # start rails application container
-                docker run -d \\
-                  --name odin-app-live \\
-                  --network odin-prod-net \\
-                  -p 3000:3000 \\
+                  --name odin-staging-app \\
+                  --network odin-staging-net \\
+                  -p 3001:3000 \\
                   -e RAILS_ENV=production \\
                   -e SECRET_KEY_BASE=\${SECRET_KEY_BASE:-dummy_secret_key_for_pipeline_run_32_chars_long} \\
-                  -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@odin-db-live:5432/odin_production \\
+                  -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@odin-staging-db:5432/odin_staging \\
                   odin-app:${env.BUILD_NUMBER} \\
                   sh -c "bundle exec rails db:prepare && bin/rails server -b 0.0.0.0"
+                # perform health check on staging
+                sleep 8
+                if curl -f http://localhost:3001/ > /dev/null 2>&1; then
+                    echo "staging health check passed."
+                else
+                    echo "staging health check failed! initiating rollback..."
+                    docker stop odin-staging-app 2>/dev/null || true
+                    docker rm odin-staging-app 2>/dev/null || true
+                    if [ -n "\$PREV_TAG" ]; then
+                        echo "rolling back to: \$PREV_TAG"
+                        docker run -d \\
+                          --name odin-staging-app \\
+                          --network odin-staging-net \\
+                          -p 3001:3000 \\
+                          -e RAILS_ENV=production \\
+                          -e SECRET_KEY_BASE=\${SECRET_KEY_BASE:-dummy_secret_key_for_pipeline_run_32_chars_long} \\
+                          -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@odin-staging-db:5432/odin_staging \\
+                          \$PREV_TAG \\
+                          sh -c "bin/rails server -b 0.0.0.0"
+                    else
+                        echo "no previous image found to rollback to."
+                    fi
+                    exit 1
+                fi
                 """
             }
             post {
@@ -196,7 +212,53 @@ pipeline {
         }
         stage('Release') {
             steps {
-                echo 'nothing yet'
+                // push tagged image to docker hub
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+                    sh """#!/bin/bash
+                    set -e
+                    # authenticate and push
+                    echo "\$DH_PASS" | docker login -u "\$DH_USER" --password-stdin
+                    docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
+                    docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:latest
+                    docker push ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
+                    docker push ${env.DOCKER_HUB_USER}/odin-app:latest
+                    """
+                }
+                // deploy to aws ec2 production environment
+                sshagent(['ec2-ssh-key']) {
+                    sh """#!/bin/bash
+                    set -e
+                    ssh -o StrictHostKeyChecking=no ubuntu@${env.EC2_PUBLIC_IP} << 'EOF'
+                    set -e
+                    # pull newly released image
+                    docker pull ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
+                    # ensure prod network and db exist
+                    docker network create odin-prod-net 2>/dev/null || true
+                    if [ ! "\$(docker ps -q -f name=odin-prod-db)" ]; then
+                        docker run -d \\
+                          --name odin-prod-db \\
+                          --network odin-prod-net \\
+                          -e POSTGRES_USER=postgres \\
+                          -e POSTGRES_PASSWORD=productionpassword \\
+                          postgres:14
+                        sleep 5
+                    fi
+                    # stop active container
+                    docker stop odin-prod-app 2>/dev/null || true
+                    docker rm odin-prod-app 2>/dev/null || true
+                    # start new production container
+                    docker run -d \\
+                      --name odin-prod-app \\
+                      --network odin-prod-net \\
+                      -p 3000:3000 \\
+                      -e RAILS_ENV=production \\
+                      -e SECRET_KEY_BASE=production_secret_key_base_32_characters_long_val \\
+                      -e DATABASE_URL=postgresql://postgres:productionpassword@odin-prod-db:5432/odin_production \\
+                      ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER} \\
+                      sh -c "bundle exec rails db:prepare && bin/rails server -b 0.0.0.0"
+                    EOF
+                    """
+                }
             }
             post {
                 success {
@@ -213,7 +275,22 @@ pipeline {
         }
         stage('Monitoring') {
             steps {
-                echo 'nothing yet'
+                sh """#!/bin/bash
+                set -e
+                # wait for the production rails server to fully boot
+                echo "waiting for rails to start..."
+                sleep 15
+                echo "monitoring production service on aws ec2..."
+                # perform live endpoint verification
+                HTTP_STATUS=\$(curl -s -o /dev/null -w "%{http_code}" http://${env.EC2_PUBLIC_IP}:3000/ || true)
+                echo "endpoint returned status: \$HTTP_STATUS"
+                if [ "\$HTTP_STATUS" -eq 200 ] || [ "\$HTTP_STATUS" -eq 302 ]; then
+                    echo "production health check successful (status \$HTTP_STATUS)"
+                else
+                    echo "alert: application health degraded (status \$HTTP_STATUS)"
+                    exit 1
+                fi
+                """
             }
             post {
                 success {
