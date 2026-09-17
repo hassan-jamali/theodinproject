@@ -14,8 +14,11 @@ else
     docker start odin-prod-db
 fi
 
-# pull the latest image pushed by Jenkins and start it
+# pull the latest image pushed by Jenkins
 docker pull hassanjamali/odin-app:latest
+# remove the old app container if it exists
+docker rm -f odin-prod-app 2>/dev/null || true
+# start the new app container
 docker run -d \
   --name odin-prod-app \
   --network odin-prod-net \
