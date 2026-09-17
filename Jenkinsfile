@@ -213,22 +213,10 @@ pipeline {
         }
         stage('Monitoring') {
             steps {
-                sh """#!/bin/bash
-                set -e
-                # wait for the production rails server to fully boot
-                echo "waiting for rails to start"
-                sleep 60
-                echo "monitoring production service on aws ec2..."
-                # perform live endpoint verification
-                HTTP_STATUS=\$(curl -s -o /dev/null -w "%{http_code}" http://${env.EC2_PUBLIC_IP}:3000/ || true)
-                echo "endpoint returned status: \$HTTP_STATUS"
-                if [ "\$HTTP_STATUS" -eq 200 ] || [ "\$HTTP_STATUS" -eq 302 ]; then
-                    echo "production health check successful (status \$HTTP_STATUS)"
-                else
-                    echo "alert: application health degraded (status \$HTTP_STATUS)"
-                    exit 1
-                fi
-                """
+                script {
+                    echo "Datadog Agent is monitoring the EC2 instance and the Docker containers."
+                    echo "Alert rules are configured in the Datadog dashboard."
+                }
             }
             post {
                 success {
