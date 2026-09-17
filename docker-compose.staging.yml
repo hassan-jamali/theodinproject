@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  odin-staging-db:
+    image: postgres:14
+    container_name: odin-staging-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USERNAME}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - odin-staging-net
+
+  odin-staging-app:
+    image: odin-app:${BUILD_NUMBER}
+    container_name: odin-staging-app
+    ports:
+      - "3001:3000"
+    environment:
+      RAILS_ENV: production
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-dummy_secret_key_for_pipeline_run_32_chars_long}
+      DATABASE_URL: postgresql://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@odin-staging-db:5432/odin_staging
+    depends_on:
+      - odin-staging-db
+    command: sh -c "bundle exec rails db:prepare && bin/rails server -b 0.0.0.0"
+    networks:
+      - odin-staging-net
+
+networks:
+  odin-staging-net:
+    driver: bridge

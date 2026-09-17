@@ -6,7 +6,7 @@ pipeline {
     environment {
         PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"
         DOCKER_HUB_USER = "hassanjamali"
-        EC2_PUBLIC_IP = "3.27.32.216"
+        EC2_PUBLIC_IP = "15.135.220.57"
     }
 
     stages {
@@ -140,62 +140,24 @@ pipeline {
         }
         stage('Deploy') {
             steps {
-                sh """#!/bin/bash
-                set -e
-                echo "deploying to staging environment..."
-                # record currently running staging image tag for rollback
-                PREV_TAG=\$(docker inspect --format='{{.Config.Image}}' odin-staging-app 2>/dev/null || echo "")
-                # create staging network
-                docker network create odin-staging-net 2>/dev/null || true
-                # start staging database
-                export \$(grep -v '^#' .env | xargs)
-                if [ ! "\$(docker ps -q -f name=odin-staging-db)" ]; then
-                    docker run -d \\
-                      --name odin-staging-db \\
-                      --network odin-staging-net \\
-                      -e POSTGRES_USER=\$POSTGRES_USERNAME \\
-                      -e POSTGRES_PASSWORD=\$POSTGRES_PASSWORD \\
-                      postgres:14
-                    sleep 5
-                fi
-                # stop active staging container
-                docker stop odin-staging-app 2>/dev/null || true
-                docker rm odin-staging-app 2>/dev/null || true
-                # start new container version
-                docker run -d \\
-                  --name odin-staging-app \\
-                  --network odin-staging-net \\
-                  -p 3001:3000 \\
-                  -e RAILS_ENV=production \\
-                  -e SECRET_KEY_BASE=\${SECRET_KEY_BASE:-dummy_secret_key_for_pipeline_run_32_chars_long} \\
-                  -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@odin-staging-db:5432/odin_staging \\
-                  odin-app:${env.BUILD_NUMBER} \\
-                  sh -c "bundle exec rails db:prepare && bin/rails server -b 0.0.0.0"
-                # perform health check on staging
-                sleep 30
-                if curl -f http://localhost:3001/ > /dev/null 2>&1; then
-                    echo "staging health check passed."
-                else
-                    echo "staging health check failed! initiating rollback..."
-                    docker stop odin-staging-app 2>/dev/null || true
-                    docker rm odin-staging-app 2>/dev/null || true
-                    if [ -n "\$PREV_TAG" ]; then
-                        echo "rolling back to: \$PREV_TAG"
-                        docker run -d \\
-                          --name odin-staging-app \\
-                          --network odin-staging-net \\
-                          -p 3001:3000 \\
-                          -e RAILS_ENV=production \\
-                          -e SECRET_KEY_BASE=\${SECRET_KEY_BASE:-dummy_secret_key_for_pipeline_run_32_chars_long} \\
-                          -e DATABASE_URL=postgresql://\$POSTGRES_USERNAME:\$POSTGRES_PASSWORD@odin-staging-db:5432/odin_staging \\
-                          \$PREV_TAG \\
-                          sh -c "bin/rails server -b 0.0.0.0"
-                    else
-                        echo "no previous image found to rollback to."
-                    fi
-                    exit 1
-                fi
-                """
+            sh """#!/bin/bash
+            set -e
+            echo "deploying to staging environment using docker-compose..."
+            # export variables needed by docker-compose
+            export \$(grep -v '^#' .env | xargs)
+            export BUILD_NUMBER=${env.BUILD_NUMBER}
+            # start the staging environment
+            docker compose -f docker-compose.staging.yml up -d
+            # perform health check on staging
+            sleep 30
+            if curl -f http://localhost:3001/ > /dev/null 2>&1; then
+                echo "staging health check passed."
+            else
+                echo "staging health check failed. rollback previous version"
+                docker compose -f docker-compose.staging.yml down
+                exit 1
+            fi
+            """
             }
             post {
                 success {
@@ -212,54 +174,28 @@ pipeline {
         }
         stage('Release') {
             steps {
-                // push tagged image to docker hub
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
-                    sh """#!/bin/bash
-                    set -e
-                    # authenticate and push
-                    echo "\$DH_PASS" | docker login -u "\$DH_USER" --password-stdin
-                    docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
-                    docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:latest
-                    docker push ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
-                    docker push ${env.DOCKER_HUB_USER}/odin-app:latest
-                    """
+            // push tagged image to docker hub
+            withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+                sh """#!/bin/bash
+                set -e
+                echo "\$DH_PASS" | docker login -u "\$DH_USER" --password-stdin
+                docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
+                docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:latest
+                docker push ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
+                docker push ${env.DOCKER_HUB_USER}/odin-app:latest
+                """
                 }
-                // deploy to aws ec2 production environment
-                sshagent(['ec2-ssh-key']) {
-                    sh """#!/bin/bash
-                    set -e
-                    scp -o StrictHostKeyChecking=no .env ubuntu@${env.EC2_PUBLIC_IP}:/home/ubuntu/.env
-                    ssh -o StrictHostKeyChecking=no ubuntu@${env.EC2_PUBLIC_IP} << 'EOF'
-                    set -e
-                    # pull newly released image
-                    docker pull ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
-                    # ensure prod network and db exist
-                    docker network create odin-prod-net 2>/dev/null || true
-                    if [ ! "\$(docker ps -q -f name=odin-prod-db)" ]; then
-                        docker run -d \\
-                          --name odin-prod-db \\
-                          --network odin-prod-net \\
-                          -e POSTGRES_USER=postgres \\
-                          -e POSTGRES_PASSWORD=productionpassword \\
-                          postgres:14
-                        sleep 5
-                    fi
-                    # stop active container
-                    docker stop odin-prod-app 2>/dev/null || true
-                    docker rm odin-prod-app 2>/dev/null || true
-                    # start new production container
-                    docker run -d \\
-                      --name odin-prod-app \\
-                      --network odin-prod-net \\
-                      -p 3000:3000 \\
-                      --env-file /home/ubuntu/.env \\
-                      -e RAILS_ENV=production \\
-                      -e SECRET_KEY_BASE=production_secret_key_base_32_characters_long_val \\
-                      -e DATABASE_URL=postgresql://postgres:productionpassword@odin-prod-db:5432/odin_production \\
-                      ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER} \\
-                      sh -c "bundle exec rails db:prepare && bin/rails server -b 0.0.0.0"
-EOF
-                    """
+            // trigger AWS CodeDeploy
+            withCredentials([usernamePassword(credentialsId: 'aws-credentials', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                sh """#!/bin/bash
+                set -e
+                export AWS_DEFAULT_REGION="ap-southeast-2" # Update to your AWS region
+                
+                aws deploy create-deployment \\
+                  --application-name OdinApp \\
+                  --deployment-group-name OdinAppProdGroup \\
+                  --github-location repository=hassan-jamali/theodinproject,commitId=\$(git rev-parse HEAD)
+                """
                 }
             }
             post {
@@ -280,7 +216,7 @@ EOF
                 sh """#!/bin/bash
                 set -e
                 # wait for the production rails server to fully boot
-                echo "waiting for rails to start..."
+                echo "waiting for rails to start"
                 sleep 60
                 echo "monitoring production service on aws ec2..."
                 # perform live endpoint verification
