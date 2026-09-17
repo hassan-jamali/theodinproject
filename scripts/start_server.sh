@@ -1,11 +1,17 @@
 #!/bin/bash
 set -e
 
-# first check if network and DB exist
+# check if network exists
 docker network create odin-prod-net 2>/dev/null || true
-if [ ! "$(docker ps -q -f name=odin-prod-db)" ]; then
+
+# then, check if DB exists (running or stopped)
+if [ ! "$(docker ps -a -q -f name=odin-prod-db)" ]; then
+    # create it if it doesn't exist at all
     docker run -d --name odin-prod-db --network odin-prod-net -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=productionpassword postgres:14
     sleep 5
+else
+    # if it exists but was stopped, just start it
+    docker start odin-prod-db
 fi
 
 # pull the latest image pushed by Jenkins and start it
