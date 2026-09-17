@@ -174,30 +174,32 @@ pipeline {
         }
         stage('Release') {
             steps {
-            // push tagged image to docker hub
-            withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
-                sh """#!/bin/bash
-                set -e
-                echo "\$DH_PASS" | docker login -u "\$DH_USER" --password-stdin
-                docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
-                docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:latest
-                docker push ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
-                docker push ${env.DOCKER_HUB_USER}/odin-app:latest
-                """
+                // push tagged image to docker hub
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+                    sh """#!/bin/bash
+                    set -e
+                    echo "\$DH_PASS" | docker login -u "\$DH_USER" --password-stdin
+                    docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
+                    docker tag odin-app:${env.BUILD_NUMBER} ${env.DOCKER_HUB_USER}/odin-app:latest
+                    docker push ${env.DOCKER_HUB_USER}/odin-app:${env.BUILD_NUMBER}
+                    docker push ${env.DOCKER_HUB_USER}/odin-app:latest
+                    """
                 }
-            // trigger AWS CodeDeploy
-            withCredentials([usernamePassword(credentialsId: 'aws-credentials', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                sh """#!/bin/bash
-                set -e
-                export AWS_DEFAULT_REGION="ap-southeast-2" # Update to your AWS region
-                
-                aws deploy create-deployment \\
-                  --application-name OdinApp \\
-                  --deployment-group-name OdinAppProdGroup \\
-                  --github-location repository=hassan-jamali/theodinproject,commitId=\$(git rev-parse HEAD)
-                """
-                }
+                // trigger AWS CodeDeploy and wait for completion
+                withCredentials([usernamePassword(credentialsId: 'aws-credentials', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh """#!/bin/bash
+                    set -e
+                    export AWS_DEFAULT_REGION="ap-southeast-2"
+                    DEPLOYMENT_ID=\$(aws deploy create-deployment \\
+                        --application-name OdinApp \\
+                        --deployment-group-name OdinAppProdGroup \\
+                        --github-location repository=hassan-jamali/theodinproject,commitId=\$(git rev-parse HEAD) \\
+                        --query "deploymentId" --output text)
+                    echo "Waiting for CodeDeploy deployment to complete"
+                    aws deploy wait deployment-successful --deployment-id "\$DEPLOYMENT_ID"
+                    """
             }
+        }
             post {
                 success {
                     script {
